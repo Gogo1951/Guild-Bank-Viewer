@@ -3,9 +3,6 @@ local GBV = {}
 _G[ADDON] = GBV
 local DISPLAY_NAME = "Guild Bank Viewer"
 
--- ============
--- Compat layer
--- ============
 local hasC = C_Container and true or false
 
 local function GBV_GetNumSlots(bag)
@@ -61,13 +58,10 @@ local function GBV_GetItemIDFromLink(link)
     return tonumber(idStr)
 end
 
--- ============
--- Small utils
--- ============
 local PURPLE = "|cFFB44BFF"
 local BLUE = "|cFF1A9EFF"
 local ENDC = "|r"
-local ERRORC = "|cFFC41E3A" -- "FF0080" as requested
+local ERRORC = "|cFFC41E3A"
 
 local function gbvLink(tag, label)
     return (BLUE .. "|Hgbv:%s|h[%s]|h|r"):format(tag, label)
@@ -77,13 +71,11 @@ local function now()
     return GetTime()
 end
 
--- bank/guild-bank visibility flags
 local GBV_BankOpen = false
 local GBV_GuildBankOpen = false
 
--- Throttle (avoid spam)
 local lastShown = {bag = 0, bank = 0, guild = 0}
-local COOLDOWN = 3 -- seconds
+local COOLDOWN = 3
 
 local function safeAddMessage(msg)
     if DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.AddMessage then
@@ -91,9 +83,6 @@ local function safeAddMessage(msg)
     end
 end
 
--- ============
--- Busy/Spam guards
--- ============
 local function frameShown(name)
     local f = _G[name]
     return f and f:IsShown()
@@ -123,9 +112,6 @@ local function isBusyContext()
     return false
 end
 
--- ============
--- Exporters
--- ============
 local BACKPACK = 0
 local FIRST_BAG, LAST_BAG = 1, 4
 local BANK_CONTAINER = -1
@@ -228,7 +214,6 @@ local function CollectGuildBank()
     return items
 end
 
--- Money formatting / export blob
 local function moneyText(copper)
     local g = math.floor(copper / 10000)
     local s = math.floor((copper % 10000) / 100)
@@ -247,13 +232,10 @@ local function makeExportBlob(whereLabel, items)
     )
 end
 
--- =================
--- Export UI window
--- =================
 local frame
 local titleFS
 local errorFS
-local labelExport  -- dynamic "Export Backpack/Bank Vault/Guild Bank Vault"
+local labelExport
 local editURL1, btnURL1
 local editURL2, btnURL2
 local editExport, btnExport
@@ -267,7 +249,6 @@ local function selectEditBox(eb)
     eb:SetFocus()
 end
 
--- layout helper: squeezes edit box up to the right-anchored button
 local function layoutRow(y, labelFS, editBox, button)
     labelFS:SetPoint("TOPLEFT", 16, y)
     button:SetPoint("TOPRIGHT", -16, y - 20)
@@ -307,22 +288,18 @@ local function ensureFrame()
     frame:SetScript("OnDragStart", frame.StartMoving)
     frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
 
-    -- Title (purple) + suffix
     titleFS = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
     titleFS:SetPoint("TOPLEFT", 16, -12)
     titleFS:SetText(PURPLE .. DISPLAY_NAME .. ENDC .. " // Export Tool")
 
-    -- Inline error (hidden by default)
     errorFS = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     errorFS:SetPoint("TOPLEFT", titleFS, "BOTTOMLEFT", 0, -2)
     errorFS:SetText("")
     errorFS:Hide()
 
-    -- Close
     local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", 2, 2)
 
-    -- Export row
     labelExport = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     editExport = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
     editExport:SetAutoFocus(false)
@@ -338,7 +315,6 @@ local function ensureFrame()
     )
     layoutRow(-44, labelExport, editExport, btnExport)
 
-    -- Website row
     local label1 = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     label1:SetText("Website")
     editURL1 = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
@@ -354,7 +330,6 @@ local function ensureFrame()
     )
     layoutRow(-96, label1, editURL1, btnURL1)
 
-    -- Discord row
     local label2 = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     label2:SetText("Discord")
     editURL2 = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
@@ -370,7 +345,6 @@ local function ensureFrame()
     )
     layoutRow(-148, label2, editURL2, btnURL2)
 
-    -- Helper text
     helpText = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     helpText:SetPoint("BOTTOMLEFT", 16, 12)
     helpText:SetText("Click Select, then press Ctrl+C (Windows) or Apple+C (Mac) to copy.")
@@ -391,7 +365,6 @@ local function ensureFrame()
     end
 end
 
--- Track what the current export context is (for error display)
 local currentWhere = nil
 
 local function setExportHeader(whereLabel)
@@ -422,9 +395,6 @@ local function ShowExportWindow(items, whereLabel)
     updateBankVaultError()
 end
 
--- =====================
--- Clickable chat links
--- =====================
 local _OrigSetItemRef = SetItemRef
 SetItemRef = function(link, text, button, chatFrame)
     local ltype, arg = link:match("^(%a+):(.+)$")
@@ -441,9 +411,6 @@ SetItemRef = function(link, text, button, chatFrame)
     return _OrigSetItemRef(link, text, button, chatFrame)
 end
 
--- ======================
--- Event-driven messaging
--- ======================
 local f = CreateFrame("Frame")
 f:RegisterEvent("PLAYER_LOGIN")
 f:RegisterEvent("PLAYER_ENTERING_WORLD")
