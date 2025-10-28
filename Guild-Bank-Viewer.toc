@@ -1,0 +1,8 @@
+## Title: Guild Bank Viewer
+## Notes: Companion App for guildbankviewer.com
+## Author: Gogo1951
+
+## Interface: 110205, 50501, 11508
+## Version: 0.1.0
+
+GuildBankViewer.lua
