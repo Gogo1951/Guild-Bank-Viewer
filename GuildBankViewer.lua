@@ -58,13 +58,15 @@ local function GBV_GetItemIDFromLink(link)
     return tonumber(idStr)
 end
 
-local PURPLE = "|cFFB44BFF"
-local BLUE = "|cFF1A9EFF"
+local NAMEC = "|cFFB0BEC5"
+local LINKC = "|cFF2196F3"
+local SLASHC = "|cFF607D8B"
+local TEXTC = "|cFFECEFF1"
 local ENDC = "|r"
 local ERRORC = "|cFFC41E3A"
 
 local function gbvLink(tag, label)
-    return (BLUE .. "|Hgbv:%s|h[%s]|h|r"):format(tag, label)
+    return (LINKC .. "|Hgbv:%s|h[%s]|h|r"):format(tag, label)
 end
 
 local function now()
@@ -93,19 +95,21 @@ local function isBusyContext()
         return true
     end
     if
-        frameShown("TradeFrame") or frameShown("MerchantFrame") or frameShown("AuctionFrame") or
-            frameShown("AuctionHouseFrame") or
-            frameShown("MailFrame") or
-            frameShown("GossipFrame") or
-            frameShown("ClassTrainerFrame") or
-            frameShown("GuildRegistrarFrame") or
-            frameShown("TabardFrame") or
-            frameShown("BarberShopFrame") or
-            frameShown("VoidStorageFrame") or
-            frameShown("TransmogrifyFrame") or
-            frameShown("ItemSocketingFrame") or
-            frameShown("ScrappingMachineFrame") or
-            frameShown("ProfessionsFrame")
+        frameShown("AuctionFrame") or
+        frameShown("AuctionHouseFrame") or
+        frameShown("BarberShopFrame") or
+        frameShown("ClassTrainerFrame") or
+        frameShown("GossipFrame") or
+        frameShown("GuildRegistrarFrame") or
+        frameShown("ItemSocketingFrame") or
+        frameShown("MailFrame") or
+        frameShown("MerchantFrame") or 
+        frameShown("ProfessionsFrame") or
+        frameShown("ScrappingMachineFrame") or
+        frameShown("TabardFrame") or
+        frameShown("TradeFrame") or 
+        frameShown("TransmogrifyFrame") or
+        frameShown("VoidStorageFrame")
      then
         return true
     end
@@ -290,7 +294,7 @@ local function ensureFrame()
 
     titleFS = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
     titleFS:SetPoint("TOPLEFT", 16, -12)
-    titleFS:SetText(PURPLE .. DISPLAY_NAME .. ENDC .. " // Export Tool")
+    titleFS:SetText(NAMEC .. DISPLAY_NAME .. SLASHC .. " // " .. TEXTC .. "Export Tool" .. ENDC)
 
     errorFS = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     errorFS:SetPoint("TOPLEFT", titleFS, "BOTTOMLEFT", 0, -2)
@@ -368,7 +372,7 @@ end
 local currentWhere = nil
 
 local function setExportHeader(whereLabel)
-    labelExport:SetText(("Export %s%s%s"):format(BLUE, whereLabel, ENDC))
+    labelExport:SetText(TEXTC .. "Export " .. LINKC .. whereLabel .. ENDC)
     currentWhere = whereLabel
 end
 
@@ -426,19 +430,22 @@ local function postBagLine()
     if isBusyContext() then
         return
     end
+
     local t = now()
     if t - lastShown.bag < COOLDOWN then
         return
     end
     lastShown.bag = t
+
     local msg =
-        string.format(
-        "%s%s%s // Click to export the contents of your %s.",
-        PURPLE,
-        DISPLAY_NAME,
-        ENDC,
-        gbvLink("bag", "Backpack")
-    )
+        NAMEC ..
+        DISPLAY_NAME ..
+            SLASHC ..
+                " // " ..
+                    TEXTC ..
+                        "Click to export the contents of your " ..
+                            ENDC .. gbvLink("bag", "Backpack") .. TEXTC .. "." .. ENDC
+
     safeAddMessage(msg)
 end
 
@@ -446,20 +453,24 @@ local function postBankLine()
     if isBusyContext() then
         return
     end
+
     local t = now()
     if t - lastShown.bank < COOLDOWN then
         return
     end
     lastShown.bank = t
+
     local msg =
-        string.format(
-        "%s%s%s // Click to export the contents of your %s, or %s.",
-        PURPLE,
-        DISPLAY_NAME,
-        ENDC,
-        gbvLink("bag", "Backpack"),
-        gbvLink("bank", "Bank Vault")
-    )
+        NAMEC ..
+        DISPLAY_NAME ..
+            SLASHC ..
+                " // " ..
+                    TEXTC ..
+                        "Click to export the contents of your " ..
+                            ENDC ..
+                                gbvLink("bag", "Backpack") ..
+                                    TEXTC .. ", or " .. ENDC .. gbvLink("bank", "Bank Vault") .. TEXTC .. "." .. ENDC
+
     safeAddMessage(msg)
 end
 
@@ -467,20 +478,26 @@ local function postGuildLine()
     if isBusyContext() then
         return
     end
+
     local t = now()
     if t - lastShown.guild < COOLDOWN then
         return
     end
     lastShown.guild = t
+
     local msg =
-        string.format(
-        "%s%s%s // Click to export the contents of your %s, or %s.",
-        PURPLE,
-        DISPLAY_NAME,
-        ENDC,
-        gbvLink("bag", "Backpack"),
-        gbvLink("guildbank", "Guild Bank Vault")
-    )
+        NAMEC ..
+        DISPLAY_NAME ..
+            SLASHC ..
+                " // " ..
+                    TEXTC ..
+                        "Click to export the contents of your " ..
+                            ENDC ..
+                                gbvLink("bag", "Backpack") ..
+                                    TEXTC ..
+                                        ", or " ..
+                                            ENDC .. gbvLink("guildbank", "Guild Bank Vault") .. TEXTC .. "." .. ENDC
+
     safeAddMessage(msg)
 end
 
