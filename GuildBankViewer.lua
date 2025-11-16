@@ -305,124 +305,170 @@ local function makeExportBlob(whereLabel, items)
     )
 end
 
-local function makeTSVList(items)
+local function makeTSVList(items, whereLabel)
     local totalCopper = GetMoney and GetMoney() or 0
-    local gold = math.floor(totalCopper / 10000)
-    local silver = math.floor((totalCopper % 10000) / 100)
-    local copper = totalCopper % 100
+    local gold, silver, copper = splitCopper(totalCopper)
 
-    local totals = {}
+    local characterName = UnitName("player") or ""
+    local server = GetRealmName() or ""
+    local factionName = select(1, UnitFactionGroup("player")) or ""
+    local level = UnitLevel("player") or ""
+    local raceName = select(1, UnitRace("player")) or ""
+    local className = select(1, UnitClass("player")) or ""
+    local guid = UnitGUID("player") or ""
+    local locationLabel = whereLabel or ""
+
+    local uniqueIDs = {}
+    for _, it in ipairs(items) do
+        local iid = it.i
+        if iid then
+            uniqueIDs[iid] = true
+        end
+    end
+
     local names = {}
     local qualities = {}
     local types = {}
     local subtypes = {}
     local equips = {}
-    local binds = {}
-    local boundStates = {}
+    local bindTypes = {}
 
-    for _, it in ipairs(items) do
-        local iid = it.i
-        local qty = it.q or 0
-        if iid and qty > 0 then
-            if not totals[iid] then
-                totals[iid] = 0
-            end
-            totals[iid] = totals[iid] + qty
-
-            if not boundStates[iid] then
-                boundStates[iid] = {bound = 0, unbound = 0}
-            end
-            if it.bound then
-                boundStates[iid].bound = boundStates[iid].bound + qty
-            else
-                boundStates[iid].unbound = boundStates[iid].unbound + qty
-            end
+    for iid in pairs(uniqueIDs) do
+        local name, _, quality, _, _, itemType, itemSubType, _, equipLoc, _, _, _, _, bindType
+        if GetItemInfo then
+            name, _, quality, _, _, itemType, itemSubType, _, equipLoc, _, _, _, _, bindType = GetItemInfo(iid)
         end
-    end
-
-    for iid in pairs(totals) do
-        local name, _, quality, _, _, itemType, itemSubType, _, equipLoc, _, _, _, _, bindType = GetItemInfo(iid)
         if not name then
             name = tostring(iid)
         end
-
         names[iid] = name
         qualities[iid] = quality
         types[iid] = itemType or ""
         subtypes[iid] = itemSubType or ""
         equips[iid] = equipLoc or ""
-        binds[iid] = bindType or 0
+        bindTypes[iid] = bindType or 0
     end
 
-    local sortedIDs = {}
-    for iid in pairs(totals) do
-        table.insert(sortedIDs, iid)
+    local totals = {}
+    local keyMeta = {}
+
+    for _, it in ipairs(items) do
+        local iid = it.i
+        local qty = it.q or 0
+        if iid and qty > 0 then
+            local bindType = bindTypes[iid] or 0
+            local isBound = isItemInstanceBound(it, bindType)
+            local key = tostring(iid) .. ":" .. (isBound and "1" or "0")
+            totals[key] = (totals[key] or 0) + qty
+            if not keyMeta[key] then
+                keyMeta[key] = {iid = iid, isBound = isBound}
+            end
+        end
     end
+
+    local sortedKeys = {}
+    for key in pairs(totals) do
+        sortedKeys[#sortedKeys + 1] = key
+    end
+
     table.sort(
-        sortedIDs,
+        sortedKeys,
         function(a, b)
-            return (names[a] or "") < (names[b] or "")
+            local ma = keyMeta[a]
+            local mb = keyMeta[b]
+            local ida = ma.iid
+            local idb = mb.iid
+            local nameA = names[ida] or ""
+            local nameB = names[idb] or ""
+            if nameA == nameB then
+                if ma.isBound == mb.isBound then
+                    return ida < idb
+                end
+                return ma.isBound and true or false
+            end
+            return nameA < nameB
         end
     )
 
-    local lines = {
-        string.format("- Gold\t%d", gold),
-        string.format("- Silver\t%d", silver),
-        string.format("- Copper\t%d", copper),
-        "",
-        "Quantity\tName\tRarity\tCategory\tSubcategory\tEquip Slot\tSoulbound\tBind Rule\tWowhead"
-    }
+    local lines = {}
 
-    for _, iid in ipairs(sortedIDs) do
-        local name = names[iid]
+    lines[#lines + 1] =
+        table.concat(
+        {
+            "Character",
+            "Server",
+            "Faction",
+            "",
+            "",
+            "Level",
+            "Race",
+            "Class",
+            "GUID"
+        },
+        "\t"
+    )
+
+    lines[#lines + 1] =
+        table.concat(
+        {
+            characterName,
+            server,
+            factionName,
+            "",
+            "",
+            tostring(level),
+            tostring(raceName),
+            tostring(className),
+            tostring(guid)
+        },
+        "\t"
+    )
+
+    lines[#lines + 1] = ""
+
+    lines[#lines + 1] = string.format("- Gold\t%d", gold)
+    lines[#lines + 1] = string.format("- Silver\t%d", silver)
+    lines[#lines + 1] = string.format("- Copper\t%d", copper)
+
+    lines[#lines + 1] = ""
+
+    lines[#lines + 1] = "Location\t" .. tostring(locationLabel)
+
+    lines[#lines + 1] = ""
+
+    lines[#lines + 1] = "Quantity\tName\tRarity\tCategory\tSubcategory\tEquip Slot\tSoulbound?\tBind Rule\tWowhead"
+
+    for _, key in ipairs(sortedKeys) do
+        local meta = keyMeta[key]
+        local iid = meta.iid
+        local qty = totals[key] or 0
+        local name = names[iid] or tostring(iid)
         local rarityName = RARITY_NAMES[qualities[iid] or -1] or ""
-        local category = types[iid] or ""
-        local subcat = subtypes[iid] or ""
+        local itemType = types[iid] or ""
+        local itemSub = subtypes[iid] or ""
         local equipLoc = equips[iid]
         local equipText = ""
-
         if equipLoc and equipLoc ~= "" and equipLoc ~= "INVTYPE_NON_EQUIP_IGNORE" then
             equipText = _G[equipLoc] or ""
         end
-
-        local bindType = binds[iid] or 0
-        local bindRule = BIND_TYPES[bindType] or ""
-
+        local bindType = bindTypes[iid] or 0
+        local boundText = meta.isBound and "Yes" or "No"
+        local bindsText = BIND_TYPES[bindType] or ""
         local wowheadURL = WOWHEAD_URL_BASE .. tostring(iid)
 
-        local bs = boundStates[iid]
-        if bs.bound > 0 then
-            table.insert(
-                lines,
-                string.format(
-                    "%d\t%s\t%s\t%s\t%s\t%s\tYes\t%s\t%s",
-                    bs.bound,
-                    name,
-                    rarityName,
-                    category,
-                    subcat,
-                    equipText,
-                    bindRule,
-                    wowheadURL
-                )
-            )
-        end
-        if bs.unbound > 0 then
-            table.insert(
-                lines,
-                string.format(
-                    "%d\t%s\t%s\t%s\t%s\t%s\tNo\t%s\t%s",
-                    bs.unbound,
-                    name,
-                    rarityName,
-                    category,
-                    subcat,
-                    equipText,
-                    bindRule,
-                    wowheadURL
-                )
-            )
-        end
+        lines[#lines + 1] =
+            string.format(
+            "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s",
+            qty,
+            name,
+            rarityName,
+            itemType,
+            itemSub,
+            equipText,
+            boundText,
+            bindsText,
+            wowheadURL
+        )
     end
 
     return table.concat(lines, "\n")
@@ -584,13 +630,16 @@ local function ShowExportWindow(items, whereLabel)
     ensureFrame()
     frame:Show()
     setExportHeader(whereLabel)
+
     editExport:SetText(makeExportBlob(whereLabel, items))
     editExport:HighlightText(0, 0)
     editExport:SetCursorPosition(0)
+
     if editExportTSV then
-        editExportTSV:SetText(makeTSVList(items))
+        editExportTSV:SetText(makeTSVList(items, whereLabel))
         editExportTSV:ClearFocus()
     end
+
     updateBankVaultError()
 end
 
