@@ -95,19 +95,19 @@ local function isBusyContext()
         return true
     end
     if
-        frameShown("AuctionFrame") or
-        frameShown("AuctionHouseFrame") or
+        frameShown("AuctionFrame") or 
+        frameShown("AuctionHouseFrame") or 
         frameShown("BarberShopFrame") or
         frameShown("ClassTrainerFrame") or
         frameShown("GossipFrame") or
         frameShown("GuildRegistrarFrame") or
         frameShown("ItemSocketingFrame") or
         frameShown("MailFrame") or
-        frameShown("MerchantFrame") or 
+        frameShown("MerchantFrame") or
         frameShown("ProfessionsFrame") or
         frameShown("ScrappingMachineFrame") or
         frameShown("TabardFrame") or
-        frameShown("TradeFrame") or 
+        frameShown("TradeFrame") or
         frameShown("TransmogrifyFrame") or
         frameShown("VoidStorageFrame")
      then
@@ -236,13 +236,70 @@ local function makeExportBlob(whereLabel, items)
     )
 end
 
+local function makeTSVList(items)
+    local copper = GetMoney and GetMoney() or 0
+
+    local gold = math.floor(copper / 10000)
+    local silver = math.floor((copper % 10000) / 100)
+    local copper_only = copper % 100
+
+    local totals = {}
+    local names = {}
+
+    for _, it in ipairs(items) do
+        local iid = it.i
+        local qty = it.q or 0
+        if iid and qty > 0 then
+            if not totals[iid] then
+                totals[iid] = 0
+            end
+            totals[iid] = totals[iid] + qty
+        end
+    end
+
+    for iid in pairs(totals) do
+        local name = GetItemInfo and GetItemInfo(iid)
+        if not name then
+            name = tostring(iid)
+        end
+        names[iid] = name
+    end
+
+    local sortedIDs = {}
+    for iid in pairs(totals) do
+        table.insert(sortedIDs, iid)
+    end
+    table.sort(
+        sortedIDs,
+        function(a, b)
+            return names[a] < names[b]
+        end
+    )
+
+    local lines = {
+        string.format("- Gold\t%d", gold),
+        string.format("- Silver\t%d", silver),
+        string.format("- Copper\t%d", copper_only)
+    }
+
+    for _, iid in ipairs(sortedIDs) do
+        table.insert(lines, string.format("%s\t%d", names[iid], totals[iid]))
+    end
+
+    return table.concat(lines, "\n")
+end
+
 local frame
 local titleFS
 local errorFS
 local labelExport
+local editExport, btnExport
+
+local labelExportTSV
+local editExportTSV, btnExportTSV
+
 local editURL1, btnURL1
 local editURL2, btnURL2
-local editExport, btnExport
 local helpText
 
 local function selectEditBox(eb)
@@ -268,7 +325,7 @@ local function ensureFrame()
     end
 
     frame = CreateFrame("Frame", "GBVExportFrame", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
-    frame:SetSize(500, 260)
+    frame:SetSize(500, 310)
     frame:SetPoint("CENTER")
     frame:SetFrameStrata("DIALOG")
 
@@ -294,6 +351,7 @@ local function ensureFrame()
 
     titleFS = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
     titleFS:SetPoint("TOPLEFT", 16, -12)
+
     titleFS:SetText(NAMEC .. DISPLAY_NAME .. SLASHC .. " // " .. TEXTC .. "Export Tool" .. ENDC)
 
     errorFS = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -305,6 +363,7 @@ local function ensureFrame()
     close:SetPoint("TOPRIGHT", 2, 2)
 
     labelExport = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    labelExport:SetText("Export for Guild Bank Viewer")
     editExport = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
     editExport:SetAutoFocus(false)
     editExport:SetMaxLetters(999999)
@@ -319,6 +378,22 @@ local function ensureFrame()
     )
     layoutRow(-44, labelExport, editExport, btnExport)
 
+    labelExportTSV = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    labelExportTSV:SetText("Export for Google Sheets")
+    editExportTSV = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
+    editExportTSV:SetAutoFocus(false)
+    editExportTSV:SetMaxLetters(999999)
+    editExportTSV:SetMultiLine(false)
+    btnExportTSV = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    btnExportTSV:SetText("Select")
+    btnExportTSV:SetScript(
+        "OnClick",
+        function()
+            selectEditBox(editExportTSV)
+        end
+    )
+    layoutRow(-96, labelExportTSV, editExportTSV, btnExportTSV)
+
     local label1 = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     label1:SetText("Website")
     editURL1 = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
@@ -332,7 +407,7 @@ local function ensureFrame()
             selectEditBox(editURL1)
         end
     )
-    layoutRow(-96, label1, editURL1, btnURL1)
+    layoutRow(-148, label1, editURL1, btnURL1)
 
     local label2 = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     label2:SetText("Discord")
@@ -347,13 +422,13 @@ local function ensureFrame()
             selectEditBox(editURL2)
         end
     )
-    layoutRow(-148, label2, editURL2, btnURL2)
+    layoutRow(-200, label2, editURL2, btnURL2)
 
     helpText = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     helpText:SetPoint("BOTTOMLEFT", 16, 12)
     helpText:SetText("Click Select, then press Ctrl+C (Windows) or Apple+C (Mac) to copy.")
 
-    for _, eb in next, {editURL1, editURL2, editExport} do
+    for _, eb in next, {editURL1, editURL2, editExport, editExportTSV} do
         eb:SetScript(
             "OnEditFocusGained",
             function(self)
@@ -372,7 +447,10 @@ end
 local currentWhere = nil
 
 local function setExportHeader(whereLabel)
-    labelExport:SetText(TEXTC .. "Export " .. LINKC .. whereLabel .. ENDC)
+    if titleFS then
+        titleFS:SetText(NAMEC .. DISPLAY_NAME .. SLASHC .. " // " .. TEXTC .. whereLabel .. ENDC)
+    end
+
     currentWhere = whereLabel
 end
 
@@ -393,9 +471,16 @@ local function ShowExportWindow(items, whereLabel)
     ensureFrame()
     frame:Show()
     setExportHeader(whereLabel)
+
     editExport:SetText(makeExportBlob(whereLabel, items))
     editExport:HighlightText(0, 0)
     editExport:SetCursorPosition(0)
+
+    if editExportTSV then
+        editExportTSV:SetText(makeTSVList(items))
+        editExportTSV:ClearFocus()
+    end
+
     updateBankVaultError()
 end
 
