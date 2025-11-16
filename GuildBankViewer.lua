@@ -5,6 +5,19 @@ local DISPLAY_NAME = "Guild Bank Viewer"
 
 local hasC = C_Container and true or false
 
+local RARITY_NAMES = {
+    [0] = "Poor",
+    [1] = "Common",
+    [2] = "Uncommon",
+    [3] = "Rare",
+    [4] = "Epic",
+    [5] = "Legendary",
+    [6] = "Artifact",
+    [7] = "Heirloom"
+}
+
+local WOWHEAD_URL_BASE = "https://www.wowhead.com/classic/item="
+
 local function GBV_GetNumSlots(bag)
     if hasC then
         return C_Container.GetContainerNumSlots(bag)
@@ -237,14 +250,17 @@ local function makeExportBlob(whereLabel, items)
 end
 
 local function makeTSVList(items)
-    local copper = GetMoney and GetMoney() or 0
+    local totalCopper = GetMoney and GetMoney() or 0
 
-    local gold = math.floor(copper / 10000)
-    local silver = math.floor((copper % 10000) / 100)
-    local copper_only = copper % 100
+    local gold = math.floor(totalCopper / 10000)
+    local silver = math.floor((totalCopper % 10000) / 100)
+    local copper = totalCopper % 100
 
     local totals = {}
     local names = {}
+    local qualities = {}
+    local types = {}
+    local subtypes = {}
 
     for _, it in ipairs(items) do
         local iid = it.i
@@ -258,11 +274,19 @@ local function makeTSVList(items)
     end
 
     for iid in pairs(totals) do
-        local name = GetItemInfo and GetItemInfo(iid)
+        local name, _, quality, _, _, itemType, itemSubType = nil, nil, nil, nil, nil, nil, nil
+        if GetItemInfo then
+            name, _, quality, _, _, itemType, itemSubType = GetItemInfo(iid)
+        end
+
         if not name then
             name = tostring(iid)
         end
+
         names[iid] = name
+        qualities[iid] = quality
+        types[iid] = itemType or ""
+        subtypes[iid] = itemSubType or ""
     end
 
     local sortedIDs = {}
@@ -272,18 +296,30 @@ local function makeTSVList(items)
     table.sort(
         sortedIDs,
         function(a, b)
-            return names[a] < names[b]
+            return (names[a] or "") < (names[b] or "")
         end
     )
 
     local lines = {
         string.format("- Gold\t%d", gold),
         string.format("- Silver\t%d", silver),
-        string.format("- Copper\t%d", copper_only)
+        string.format("- Copper\t%d", copper),
+        "",
+        "Quantity\tItem Name\tRarity\tType\tSubtype\tWowhead"
     }
 
     for _, iid in ipairs(sortedIDs) do
-        table.insert(lines, string.format("%s\t%d", names[iid], totals[iid]))
+        local name = names[iid] or tostring(iid)
+        local rarityName = RARITY_NAMES[qualities[iid] or -1] or ""
+        local itemType = types[iid] or ""
+        local itemSubType = subtypes[iid] or ""
+        local qty = totals[iid] or 0
+        local wowheadURL = WOWHEAD_URL_BASE .. tostring(iid)
+
+        table.insert(
+            lines,
+            string.format("%d\t%s\t%s\t%s\t%s\t%s", qty, name, rarityName, itemType, itemSubType, wowheadURL)
+        )
     end
 
     return table.concat(lines, "\n")
