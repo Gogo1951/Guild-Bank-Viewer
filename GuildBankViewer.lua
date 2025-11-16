@@ -16,6 +16,13 @@ local RARITY_NAMES = {
     [7] = "Heirloom"
 }
 
+local BIND_TYPES = {
+    [1] = "Binds on Pickup",
+    [2] = "Binds on Equip",
+    [3] = "Binds on Use",
+    [4] = "Quest Item"
+}
+
 local WOWHEAD_URL_BASE = "https://www.wowhead.com/classic/item="
 
 local function GBV_GetNumSlots(bag)
@@ -108,8 +115,8 @@ local function isBusyContext()
         return true
     end
     if
-        frameShown("AuctionFrame") or 
-        frameShown("AuctionHouseFrame") or 
+        frameShown("AuctionFrame") or
+        frameShown("AuctionHouseFrame") or
         frameShown("BarberShopFrame") or
         frameShown("ClassTrainerFrame") or
         frameShown("GossipFrame") or
@@ -261,6 +268,8 @@ local function makeTSVList(items)
     local qualities = {}
     local types = {}
     local subtypes = {}
+    local equips = {}
+    local binds = {}
 
     for _, it in ipairs(items) do
         local iid = it.i
@@ -274,9 +283,24 @@ local function makeTSVList(items)
     end
 
     for iid in pairs(totals) do
-        local name, _, quality, _, _, itemType, itemSubType = nil, nil, nil, nil, nil, nil, nil
+        local name, _, quality, _, _, itemType, itemSubType, _, equipLoc, _, _, _, _, bindType =
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil
+
         if GetItemInfo then
-            name, _, quality, _, _, itemType, itemSubType = GetItemInfo(iid)
+            name, _, quality, _, _, itemType, itemSubType, _, equipLoc, _, _, _, _, bindType = GetItemInfo(iid)
         end
 
         if not name then
@@ -287,6 +311,8 @@ local function makeTSVList(items)
         qualities[iid] = quality
         types[iid] = itemType or ""
         subtypes[iid] = itemSubType or ""
+        equips[iid] = equipLoc or ""
+        binds[iid] = bindType or 0
     end
 
     local sortedIDs = {}
@@ -305,20 +331,43 @@ local function makeTSVList(items)
         string.format("- Silver\t%d", silver),
         string.format("- Copper\t%d", copper),
         "",
-        "Quantity\tItem Name\tRarity\tType\tSubtype\tWowhead"
+        "Quantity\tItem Name\tRarity\tType\tSubtype\tEquip\tBound\tBinds\tWowhead"
     }
 
     for _, iid in ipairs(sortedIDs) do
         local name = names[iid] or tostring(iid)
         local rarityName = RARITY_NAMES[qualities[iid] or -1] or ""
         local itemType = types[iid] or ""
-        local itemSubType = subtypes[iid] or ""
+        local itemSub = subtypes[iid] or ""
         local qty = totals[iid] or 0
+        local bindType = binds[iid] or 0
+
+        local equipLoc = equips[iid]
+        local equipText = ""
+
+        if equipLoc and equipLoc ~= "" and equipLoc ~= "INVTYPE_NON_EQUIP_IGNORE" then
+            equipText = _G[equipLoc] or ""
+        end
+
+        local boundText = (bindType == 1 or bindType == 4) and "Yes" or "No"
+        local bindsText = BIND_TYPES[bindType] or ""
+
         local wowheadURL = WOWHEAD_URL_BASE .. tostring(iid)
 
         table.insert(
             lines,
-            string.format("%d\t%s\t%s\t%s\t%s\t%s", qty, name, rarityName, itemType, itemSubType, wowheadURL)
+            string.format(
+                "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s",
+                qty,
+                name,
+                rarityName,
+                itemType,
+                itemSub,
+                equipText,
+                boundText,
+                bindsText,
+                wowheadURL
+            )
         )
     end
 
