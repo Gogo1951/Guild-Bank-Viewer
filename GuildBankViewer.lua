@@ -3,7 +3,7 @@ local GBV = {}
 _G[ADDON] = GBV
 local DISPLAY_NAME = "Guild Bank Viewer"
 
-local hasC = C_Container and true or false
+local hasC = C_Container ~= nil
 
 local RARITY_NAMES = {
     [0] = "Poor",
@@ -46,8 +46,8 @@ local function GBV_GetItemInfo(bag, slot)
             return nil
         end
         local link = C_Container.GetContainerItemLink(bag, slot)
-        local itemID = info and info.itemID
-        local count = info and info.stackCount or 0
+        local itemID = info.itemID
+        local count = info.stackCount or 0
         return itemID, count, link
     else
         local link = GetContainerItemLink(bag, slot)
@@ -55,7 +55,7 @@ local function GBV_GetItemInfo(bag, slot)
             return nil
         end
         local _, count = GetContainerItemInfo(bag, slot)
-        local iid = (GetItemInfoInstant and select(1, GetItemInfoInstant(link))) or nil
+        local iid = GetItemInfoInstant and select(1, GetItemInfoInstant(link)) or nil
         return iid, count or 0, link
     end
 end
@@ -70,7 +70,7 @@ local function GBV_GetItemIDFromLink(link)
             return iid
         end
     end
-    local itemPart = link and link:match("item:[-%d:]+")
+    local itemPart = link:match("item:[-%d:]+")
     if not itemPart then
         return nil
     end
@@ -110,28 +110,32 @@ local function frameShown(name)
     return f and f:IsShown()
 end
 
+local busyFrames = {
+    "AuctionFrame",
+    "AuctionHouseFrame",
+    "BarberShopFrame",
+    "ClassTrainerFrame",
+    "GossipFrame",
+    "GuildRegistrarFrame",
+    "ItemSocketingFrame",
+    "MailFrame",
+    "MerchantFrame",
+    "ProfessionsFrame",
+    "ScrappingMachineFrame",
+    "TabardFrame",
+    "TradeFrame",
+    "TransmogrifyFrame",
+    "VoidStorageFrame"
+}
+
 local function isBusyContext()
     if (InCombatLockdown and InCombatLockdown()) or UnitAffectingCombat("player") then
         return true
     end
-    if
-        frameShown("AuctionFrame") or
-        frameShown("AuctionHouseFrame") or
-        frameShown("BarberShopFrame") or
-        frameShown("ClassTrainerFrame") or
-        frameShown("GossipFrame") or
-        frameShown("GuildRegistrarFrame") or
-        frameShown("ItemSocketingFrame") or
-        frameShown("MailFrame") or
-        frameShown("MerchantFrame") or
-        frameShown("ProfessionsFrame") or
-        frameShown("ScrappingMachineFrame") or
-        frameShown("TabardFrame") or
-        frameShown("TradeFrame") or
-        frameShown("TransmogrifyFrame") or
-        frameShown("VoidStorageFrame")
-     then
-        return true
+    for i = 1, #busyFrames do
+        if frameShown(busyFrames[i]) then
+            return true
+        end
     end
     return false
 end
@@ -145,12 +149,13 @@ local BANK_FIRST, BANK_LAST = 5, 11
 local function makeExtended(items)
     local t = {}
     for _, it in ipairs(items) do
-        if it.loc.tab then
-            table.insert(t, string.format("{i:%d,q:%d,loc:{tab:%d,slot:%d}}", it.i, it.q, it.loc.tab, it.loc.slot))
-        elseif it.loc.bag then
-            table.insert(t, string.format("{i:%d,q:%d,loc:{bag:%d,slot:%d}}", it.i, it.q, it.loc.bag, it.loc.slot))
+        local loc = it.loc
+        if loc.tab then
+            t[#t + 1] = string.format("{i:%d,q:%d,loc:{tab:%d,slot:%d}}", it.i, it.q, loc.tab, loc.slot)
+        elseif loc.bag then
+            t[#t + 1] = string.format("{i:%d,q:%d,loc:{bag:%d,slot:%d}}", it.i, it.q, loc.bag, loc.slot)
         else
-            table.insert(t, string.format("{i:%d,q:%d}", it.i, it.q))
+            t[#t + 1] = string.format("{i:%d,q:%d}", it.i, it.q)
         end
     end
     return "{" .. table.concat(t, ",") .. "}"
@@ -166,8 +171,9 @@ local function collectFromBagRange(firstBag, lastBag)
                 if link then
                     local iid, count = GBV_GetItemInfo(bag, slot)
                     iid = iid or GBV_GetItemIDFromLink(link)
-                    if iid and (count or 0) > 0 then
-                        table.insert(list, {i = iid, q = count or 1, loc = {bag = bag, slot = slot}})
+                    count = count or 0
+                    if iid and count > 0 then
+                        list[#list + 1] = {i = iid, q = count, loc = {bag = bag, slot = slot}}
                     end
                 end
             end
@@ -177,35 +183,30 @@ local function collectFromBagRange(firstBag, lastBag)
 end
 
 local function CollectBags()
-    local mixed = {}
-    local slots = GBV_GetNumSlots(BACKPACK) or 0
-    for slot = 1, slots do
-        local link = GBV_GetItemLink(BACKPACK, slot)
-        if link then
-            local iid, count = GBV_GetItemInfo(BACKPACK, slot)
-            iid = iid or GBV_GetItemIDFromLink(link)
-            if iid and (count or 0) > 0 then
-                table.insert(mixed, {i = iid, q = count or 1, loc = {bag = BACKPACK, slot = slot}})
-            end
-        end
-    end
-    for _, v in ipairs(collectFromBagRange(FIRST_BAG, LAST_BAG)) do
-        table.insert(mixed, v)
+    local mixed = collectFromBagRange(BACKPACK, BACKPACK)
+    local others = collectFromBagRange(FIRST_BAG, LAST_BAG)
+    for i = 1, #others do
+        mixed[#mixed + 1] = others[i]
     end
     return mixed
 end
 
 local function CollectBank()
     local out = {}
-    for _, v in ipairs(collectFromBagRange(BANK_CONTAINER, BANK_CONTAINER)) do
-        table.insert(out, v)
+    local bank = collectFromBagRange(BANK_CONTAINER, BANK_CONTAINER)
+    local bags = collectFromBagRange(BANK_FIRST, BANK_LAST)
+    local reagent = collectFromBagRange(REAGENTBANK_CONTAINER, REAGENTBANK_CONTAINER)
+
+    for i = 1, #bank do
+        out[#out + 1] = bank[i]
     end
-    for _, v in ipairs(collectFromBagRange(BANK_FIRST, BANK_LAST)) do
-        table.insert(out, v)
+    for i = 1, #bags do
+        out[#out + 1] = bags[i]
     end
-    for _, v in ipairs(collectFromBagRange(REAGENTBANK_CONTAINER, REAGENTBANK_CONTAINER)) do
-        table.insert(out, v)
+    for i = 1, #reagent do
+        out[#out + 1] = reagent[i]
     end
+
     return out
 end
 
@@ -222,15 +223,14 @@ local function CollectGuildBank()
         if QueryGuildBankTab then
             QueryGuildBankTab(tab)
         end
-        local numSlots = 98
-        for slot = 1, numSlots do
+        for slot = 1, 98 do
             local link = GetGuildBankItemLink and GetGuildBankItemLink(tab, slot)
             if link then
                 local _, count = GetGuildBankItemInfo(tab, slot)
                 count = count or 1
                 local iid = GBV_GetItemIDFromLink(link)
                 if iid then
-                    table.insert(items, {i = iid, q = count, loc = {tab = tab, slot = slot}})
+                    items[#items + 1] = {i = iid, q = count, loc = {tab = tab, slot = slot}}
                 end
             end
         end
@@ -238,10 +238,15 @@ local function CollectGuildBank()
     return items
 end
 
-local function moneyText(copper)
+local function splitCopper(copper)
     local g = math.floor(copper / 10000)
     local s = math.floor((copper % 10000) / 100)
     local c = copper % 100
+    return g, s, c
+end
+
+local function moneyText(copper)
+    local g, s, c = splitCopper(copper)
     return string.format("%dg%ds%dc", g, s, c)
 end
 
@@ -258,10 +263,7 @@ end
 
 local function makeTSVList(items)
     local totalCopper = GetMoney and GetMoney() or 0
-
-    local gold = math.floor(totalCopper / 10000)
-    local silver = math.floor((totalCopper % 10000) / 100)
-    local copper = totalCopper % 100
+    local gold, silver, copper = splitCopper(totalCopper)
 
     local totals = {}
     local names = {}
@@ -275,30 +277,12 @@ local function makeTSVList(items)
         local iid = it.i
         local qty = it.q or 0
         if iid and qty > 0 then
-            if not totals[iid] then
-                totals[iid] = 0
-            end
-            totals[iid] = totals[iid] + qty
+            totals[iid] = (totals[iid] or 0) + qty
         end
     end
 
     for iid in pairs(totals) do
-        local name, _, quality, _, _, itemType, itemSubType, _, equipLoc, _, _, _, _, bindType =
-            nil,
-            nil,
-            nil,
-            nil,
-            nil,
-            nil,
-            nil,
-            nil,
-            nil,
-            nil,
-            nil,
-            nil,
-            nil,
-            nil
-
+        local name, _, quality, _, _, itemType, itemSubType, _, equipLoc, _, _, _, _, bindType
         if GetItemInfo then
             name, _, quality, _, _, itemType, itemSubType, _, equipLoc, _, _, _, _, bindType = GetItemInfo(iid)
         end
@@ -317,7 +301,7 @@ local function makeTSVList(items)
 
     local sortedIDs = {}
     for iid in pairs(totals) do
-        table.insert(sortedIDs, iid)
+        sortedIDs[#sortedIDs + 1] = iid
     end
     table.sort(
         sortedIDs,
@@ -344,30 +328,26 @@ local function makeTSVList(items)
 
         local equipLoc = equips[iid]
         local equipText = ""
-
         if equipLoc and equipLoc ~= "" and equipLoc ~= "INVTYPE_NON_EQUIP_IGNORE" then
             equipText = _G[equipLoc] or ""
         end
 
         local boundText = (bindType == 1 or bindType == 4) and "Yes" or "No"
         local bindsText = BIND_TYPES[bindType] or ""
-
         local wowheadURL = WOWHEAD_URL_BASE .. tostring(iid)
 
-        table.insert(
-            lines,
+        lines[#lines + 1] =
             string.format(
-                "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s",
-                qty,
-                name,
-                rarityName,
-                itemType,
-                itemSub,
-                equipText,
-                boundText,
-                bindsText,
-                wowheadURL
-            )
+            "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s",
+            qty,
+            name,
+            rarityName,
+            itemType,
+            itemSub,
+            equipText,
+            boundText,
+            bindsText,
+            wowheadURL
         )
     end
 
@@ -378,13 +358,17 @@ local frame
 local titleFS
 local errorFS
 local labelExport
-local editExport, btnExport
+local editExport
+local btnExport
 
 local labelExportTSV
-local editExportTSV, btnExportTSV
+local editExportTSV
+local btnExportTSV
 
-local editURL1, btnURL1
-local editURL2, btnURL2
+local editURL1
+local btnURL1
+local editURL2
+local btnURL2
 local helpText
 
 local function selectEditBox(eb)
@@ -402,6 +386,46 @@ local function layoutRow(y, labelFS, editBox, button)
     editBox:SetPoint("TOPLEFT", 16, y - 20)
     editBox:SetPoint("RIGHT", button, "LEFT", -8, 0)
     editBox:SetHeight(24)
+end
+
+local function createSelectRow(y, labelText, defaultText)
+    local label = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    label:SetText(labelText)
+
+    local editBox = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
+    editBox:SetAutoFocus(false)
+    editBox:SetMaxLetters(999999)
+    editBox:SetMultiLine(false)
+    if defaultText then
+        editBox:SetText(defaultText)
+    end
+
+    local button = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    button:SetText("Select")
+    button:SetScript(
+        "OnClick",
+        function()
+            selectEditBox(editBox)
+        end
+    )
+
+    layoutRow(y, label, editBox, button)
+    return label, editBox, button
+end
+
+local function setupEditBoxCommon(eb)
+    eb:SetScript(
+        "OnEditFocusGained",
+        function(self)
+            self:HighlightText()
+        end
+    )
+    eb:SetScript(
+        "OnEscapePressed",
+        function(self)
+            self:ClearFocus()
+        end
+    )
 end
 
 local function ensureFrame()
@@ -436,7 +460,6 @@ local function ensureFrame()
 
     titleFS = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
     titleFS:SetPoint("TOPLEFT", 16, -12)
-
     titleFS:SetText(NAMEC .. DISPLAY_NAME .. SLASHC .. " // " .. TEXTC .. "Export Tool" .. ENDC)
 
     errorFS = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -447,86 +470,23 @@ local function ensureFrame()
     local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", 2, 2)
 
-    labelExport = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    labelExport:SetText("Export for Guild Bank Viewer")
-    editExport = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
-    editExport:SetAutoFocus(false)
-    editExport:SetMaxLetters(999999)
-    editExport:SetMultiLine(false)
-    btnExport = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    btnExport:SetText("Select")
-    btnExport:SetScript(
-        "OnClick",
-        function()
-            selectEditBox(editExport)
-        end
-    )
-    layoutRow(-44, labelExport, editExport, btnExport)
+    labelExport, editExport, btnExport = createSelectRow(-44, "Export for Guild Bank Viewer")
+    labelExportTSV, editExportTSV, btnExportTSV = createSelectRow(-96, "Export for Google Sheets")
 
-    labelExportTSV = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    labelExportTSV:SetText("Export for Google Sheets")
-    editExportTSV = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
-    editExportTSV:SetAutoFocus(false)
-    editExportTSV:SetMaxLetters(999999)
-    editExportTSV:SetMultiLine(false)
-    btnExportTSV = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    btnExportTSV:SetText("Select")
-    btnExportTSV:SetScript(
-        "OnClick",
-        function()
-            selectEditBox(editExportTSV)
-        end
-    )
-    layoutRow(-96, labelExportTSV, editExportTSV, btnExportTSV)
+    local label1
+    label1, editURL1, btnURL1 = createSelectRow(-148, "Website", "https://www.guildbankviewer.com")
 
-    local label1 = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    label1:SetText("Website")
-    editURL1 = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
-    editURL1:SetAutoFocus(false)
-    editURL1:SetText("https://www.guildbankviewer.com")
-    btnURL1 = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    btnURL1:SetText("Select")
-    btnURL1:SetScript(
-        "OnClick",
-        function()
-            selectEditBox(editURL1)
-        end
-    )
-    layoutRow(-148, label1, editURL1, btnURL1)
-
-    local label2 = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    label2:SetText("Discord")
-    editURL2 = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
-    editURL2:SetAutoFocus(false)
-    editURL2:SetText("https://discord.gg/eh8hKq992Q")
-    btnURL2 = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    btnURL2:SetText("Select")
-    btnURL2:SetScript(
-        "OnClick",
-        function()
-            selectEditBox(editURL2)
-        end
-    )
-    layoutRow(-200, label2, editURL2, btnURL2)
+    local label2
+    label2, editURL2, btnURL2 = createSelectRow(-200, "Discord", "https://discord.gg/eh8hKq992Q")
 
     helpText = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     helpText:SetPoint("BOTTOMLEFT", 16, 12)
     helpText:SetText("Click Select, then press Ctrl+C (Windows) or Apple+C (Mac) to copy.")
 
-    for _, eb in next, {editURL1, editURL2, editExport, editExportTSV} do
-        eb:SetScript(
-            "OnEditFocusGained",
-            function(self)
-                self:HighlightText()
-            end
-        )
-        eb:SetScript(
-            "OnEscapePressed",
-            function(self)
-                self:ClearFocus()
-            end
-        )
-    end
+    setupEditBoxCommon(editURL1)
+    setupEditBoxCommon(editURL2)
+    setupEditBoxCommon(editExport)
+    setupEditBoxCommon(editExportTSV)
 end
 
 local currentWhere = nil
@@ -535,7 +495,6 @@ local function setExportHeader(whereLabel)
     if titleFS then
         titleFS:SetText(NAMEC .. DISPLAY_NAME .. SLASHC .. " // " .. TEXTC .. whereLabel .. ENDC)
     end
-
     currentWhere = whereLabel
 end
 
@@ -674,51 +633,26 @@ end
 local function hookBagOpenSignals()
     if ToggleAllBags and not GBV._hookedToggleAllBags then
         GBV._hookedToggleAllBags = true
-        hooksecurefunc(
-            "ToggleAllBags",
-            function()
-                postBagLine()
-            end
-        )
+        hooksecurefunc("ToggleAllBags", postBagLine)
     end
     if OpenAllBags and not GBV._hookedOpenAllBags then
         GBV._hookedOpenAllBags = true
-        hooksecurefunc(
-            "OpenAllBags",
-            function()
-                postBagLine()
-            end
-        )
+        hooksecurefunc("OpenAllBags", postBagLine)
     end
     if ToggleBackpack and not GBV._hookedToggleBackpack then
         GBV._hookedToggleBackpack = true
-        hooksecurefunc(
-            "ToggleBackpack",
-            function()
-                postBagLine()
-            end
-        )
+        hooksecurefunc("ToggleBackpack", postBagLine)
     end
     local combined = _G.ContainerFrameCombinedBags
     if combined and not combined._gbvHooked then
         combined._gbvHooked = true
-        combined:HookScript(
-            "OnShow",
-            function()
-                postBagLine()
-            end
-        )
+        combined:HookScript("OnShow", postBagLine)
     end
     for i = 1, 14 do
         local cf = _G["ContainerFrame" .. i]
         if cf and not cf._gbvHooked then
             cf._gbvHooked = true
-            cf:HookScript(
-                "OnShow",
-                function()
-                    postBagLine()
-                end
-            )
+            cf:HookScript("OnShow", postBagLine)
         end
     end
 end
