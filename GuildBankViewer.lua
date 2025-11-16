@@ -149,7 +149,7 @@ local BANK_FIRST, BANK_LAST = 5, 11
 local function makeExtended(items)
     local t = {}
     for _, it in ipairs(items) do
-        local loc = it.loc
+        local loc = it.loc or {}
         if loc.tab then
             t[#t + 1] = string.format("{i:%d,q:%d,loc:{tab:%d,slot:%d}}", it.i, it.q, loc.tab, loc.slot)
         elseif loc.bag then
@@ -196,7 +196,6 @@ local function CollectBank()
     local bank = collectFromBagRange(BANK_CONTAINER, BANK_CONTAINER)
     local bags = collectFromBagRange(BANK_FIRST, BANK_LAST)
     local reagent = collectFromBagRange(REAGENTBANK_CONTAINER, REAGENTBANK_CONTAINER)
-
     for i = 1, #bank do
         out[#out + 1] = bank[i]
     end
@@ -206,7 +205,6 @@ local function CollectBank()
     for i = 1, #reagent do
         out[#out + 1] = reagent[i]
     end
-
     return out
 end
 
@@ -238,6 +236,52 @@ local function CollectGuildBank()
     return items
 end
 
+local scanTooltip
+
+local function ensureScanTooltip()
+    if scanTooltip then
+        return
+    end
+    scanTooltip = CreateFrame("GameTooltip", "GBVScanTooltip", UIParent, "GameTooltipTemplate")
+    scanTooltip:SetOwner(UIParent, "ANCHOR_NONE")
+end
+
+local function isItemInstanceBound(item, bindType)
+    if bindType == 1 or bindType == 4 then
+        return true
+    end
+    local loc = item.loc
+    if not loc then
+        return false
+    end
+    ensureScanTooltip()
+    scanTooltip:ClearLines()
+    if loc.bag then
+        if hasC and C_Container.GetContainerItemInfo then
+            local info = C_Container.GetContainerItemInfo(loc.bag, loc.slot)
+            if info and info.isBound ~= nil then
+                return info.isBound
+            end
+        end
+        scanTooltip:SetBagItem(loc.bag, loc.slot)
+    elseif loc.tab and SetGuildBankItem then
+        scanTooltip:SetGuildBankItem(loc.tab, loc.slot)
+    else
+        return false
+    end
+    for i = 1, scanTooltip:NumLines() do
+        local left = _G["GBVScanTooltipTextLeft" .. i]
+        local text = left and left:GetText()
+        if
+            text == ITEM_SOULBOUND or text == ITEM_ACCOUNTBOUND or text == ITEM_BIND_TO_ACCOUNT or
+                text == ITEM_BIND_TO_BNETACCOUNT
+         then
+            return true
+        end
+    end
+    return false
+end
+
 local function splitCopper(copper)
     local g = math.floor(copper / 10000)
     local s = math.floor((copper % 10000) / 100)
@@ -263,7 +307,9 @@ end
 
 local function makeTSVList(items)
     local totalCopper = GetMoney and GetMoney() or 0
-    local gold, silver, copper = splitCopper(totalCopper)
+    local gold = math.floor(totalCopper / 10000)
+    local silver = math.floor((totalCopper % 10000) / 100)
+    local copper = totalCopper % 100
 
     local totals = {}
     local names = {}
@@ -272,21 +318,30 @@ local function makeTSVList(items)
     local subtypes = {}
     local equips = {}
     local binds = {}
+    local boundStates = {}
 
     for _, it in ipairs(items) do
         local iid = it.i
         local qty = it.q or 0
         if iid and qty > 0 then
-            totals[iid] = (totals[iid] or 0) + qty
+            if not totals[iid] then
+                totals[iid] = 0
+            end
+            totals[iid] = totals[iid] + qty
+
+            if not boundStates[iid] then
+                boundStates[iid] = {bound = 0, unbound = 0}
+            end
+            if it.bound then
+                boundStates[iid].bound = boundStates[iid].bound + qty
+            else
+                boundStates[iid].unbound = boundStates[iid].unbound + qty
+            end
         end
     end
 
     for iid in pairs(totals) do
-        local name, _, quality, _, _, itemType, itemSubType, _, equipLoc, _, _, _, _, bindType
-        if GetItemInfo then
-            name, _, quality, _, _, itemType, itemSubType, _, equipLoc, _, _, _, _, bindType = GetItemInfo(iid)
-        end
-
+        local name, _, quality, _, _, itemType, itemSubType, _, equipLoc, _, _, _, _, bindType = GetItemInfo(iid)
         if not name then
             name = tostring(iid)
         end
@@ -301,7 +356,7 @@ local function makeTSVList(items)
 
     local sortedIDs = {}
     for iid in pairs(totals) do
-        sortedIDs[#sortedIDs + 1] = iid
+        table.insert(sortedIDs, iid)
     end
     table.sort(
         sortedIDs,
@@ -315,40 +370,59 @@ local function makeTSVList(items)
         string.format("- Silver\t%d", silver),
         string.format("- Copper\t%d", copper),
         "",
-        "Quantity\tItem Name\tRarity\tType\tSubtype\tEquip\tBound\tBinds\tWowhead"
+        "Quantity\tName\tRarity\tCategory\tSubcategory\tEquip Slot\tSoulbound\tBind Rule\tWowhead"
     }
 
     for _, iid in ipairs(sortedIDs) do
-        local name = names[iid] or tostring(iid)
+        local name = names[iid]
         local rarityName = RARITY_NAMES[qualities[iid] or -1] or ""
-        local itemType = types[iid] or ""
-        local itemSub = subtypes[iid] or ""
-        local qty = totals[iid] or 0
-        local bindType = binds[iid] or 0
-
+        local category = types[iid] or ""
+        local subcat = subtypes[iid] or ""
         local equipLoc = equips[iid]
         local equipText = ""
+
         if equipLoc and equipLoc ~= "" and equipLoc ~= "INVTYPE_NON_EQUIP_IGNORE" then
             equipText = _G[equipLoc] or ""
         end
 
-        local boundText = (bindType == 1 or bindType == 4) and "Yes" or "No"
-        local bindsText = BIND_TYPES[bindType] or ""
+        local bindType = binds[iid] or 0
+        local bindRule = BIND_TYPES[bindType] or ""
+
         local wowheadURL = WOWHEAD_URL_BASE .. tostring(iid)
 
-        lines[#lines + 1] =
-            string.format(
-            "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s",
-            qty,
-            name,
-            rarityName,
-            itemType,
-            itemSub,
-            equipText,
-            boundText,
-            bindsText,
-            wowheadURL
-        )
+        local bs = boundStates[iid]
+        if bs.bound > 0 then
+            table.insert(
+                lines,
+                string.format(
+                    "%d\t%s\t%s\t%s\t%s\t%s\tYes\t%s\t%s",
+                    bs.bound,
+                    name,
+                    rarityName,
+                    category,
+                    subcat,
+                    equipText,
+                    bindRule,
+                    wowheadURL
+                )
+            )
+        end
+        if bs.unbound > 0 then
+            table.insert(
+                lines,
+                string.format(
+                    "%d\t%s\t%s\t%s\t%s\t%s\tNo\t%s\t%s",
+                    bs.unbound,
+                    name,
+                    rarityName,
+                    category,
+                    subcat,
+                    equipText,
+                    bindRule,
+                    wowheadURL
+                )
+            )
+        end
     end
 
     return table.concat(lines, "\n")
@@ -391,7 +465,6 @@ end
 local function createSelectRow(y, labelText, defaultText)
     local label = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     label:SetText(labelText)
-
     local editBox = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
     editBox:SetAutoFocus(false)
     editBox:SetMaxLetters(999999)
@@ -399,7 +472,6 @@ local function createSelectRow(y, labelText, defaultText)
     if defaultText then
         editBox:SetText(defaultText)
     end
-
     local button = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     button:SetText("Select")
     button:SetScript(
@@ -408,7 +480,6 @@ local function createSelectRow(y, labelText, defaultText)
             selectEditBox(editBox)
         end
     )
-
     layoutRow(y, label, editBox, button)
     return label, editBox, button
 end
@@ -472,10 +543,8 @@ local function ensureFrame()
 
     labelExport, editExport, btnExport = createSelectRow(-44, "Export for Guild Bank Viewer")
     labelExportTSV, editExportTSV, btnExportTSV = createSelectRow(-96, "Export for Google Sheets")
-
     local label1
     label1, editURL1, btnURL1 = createSelectRow(-148, "Website", "https://www.guildbankviewer.com")
-
     local label2
     label2, editURL2, btnURL2 = createSelectRow(-200, "Discord", "https://discord.gg/eh8hKq992Q")
 
@@ -515,16 +584,13 @@ local function ShowExportWindow(items, whereLabel)
     ensureFrame()
     frame:Show()
     setExportHeader(whereLabel)
-
     editExport:SetText(makeExportBlob(whereLabel, items))
     editExport:HighlightText(0, 0)
     editExport:SetCursorPosition(0)
-
     if editExportTSV then
         editExportTSV:SetText(makeTSVList(items))
         editExportTSV:ClearFocus()
     end
-
     updateBankVaultError()
 end
 
@@ -559,13 +625,11 @@ local function postBagLine()
     if isBusyContext() then
         return
     end
-
     local t = now()
     if t - lastShown.bag < COOLDOWN then
         return
     end
     lastShown.bag = t
-
     local msg =
         NAMEC ..
         DISPLAY_NAME ..
@@ -574,7 +638,6 @@ local function postBagLine()
                     TEXTC ..
                         "Click to export the contents of your " ..
                             ENDC .. gbvLink("bag", "Backpack") .. TEXTC .. "." .. ENDC
-
     safeAddMessage(msg)
 end
 
@@ -582,13 +645,11 @@ local function postBankLine()
     if isBusyContext() then
         return
     end
-
     local t = now()
     if t - lastShown.bank < COOLDOWN then
         return
     end
     lastShown.bank = t
-
     local msg =
         NAMEC ..
         DISPLAY_NAME ..
@@ -599,7 +660,6 @@ local function postBankLine()
                             ENDC ..
                                 gbvLink("bag", "Backpack") ..
                                     TEXTC .. ", or " .. ENDC .. gbvLink("bank", "Bank Vault") .. TEXTC .. "." .. ENDC
-
     safeAddMessage(msg)
 end
 
@@ -607,13 +667,11 @@ local function postGuildLine()
     if isBusyContext() then
         return
     end
-
     local t = now()
     if t - lastShown.guild < COOLDOWN then
         return
     end
     lastShown.guild = t
-
     local msg =
         NAMEC ..
         DISPLAY_NAME ..
@@ -626,7 +684,6 @@ local function postGuildLine()
                                     TEXTC ..
                                         ", or " ..
                                             ENDC .. gbvLink("guildbank", "Guild Bank Vault") .. TEXTC .. "." .. ENDC
-
     safeAddMessage(msg)
 end
 
