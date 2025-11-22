@@ -1,7 +1,7 @@
 local ADDON = ...
 local GBV = {}
 _G[ADDON] = GBV
-local DISPLAY_NAME = "Guild Bank Viewer"
+local DISPLAY_NAME = "Exporter"
 
 local hasC = C_Container ~= nil
 
@@ -78,12 +78,12 @@ local function GBV_GetItemIDFromLink(link)
     return tonumber(idStr)
 end
 
-local NAMEC = "|cFFB0BEC5"
+local NAMEC = "|cFF78909C"
 local LINKC = "|cFF2196F3"
-local SLASHC = "|cFF607D8B"
-local TEXTC = "|cFFECEFF1"
+local SLASHC = "|cFF37474F"
+local TEXTC = "|cFFFFFFFF"
 local ENDC = "|r"
-local ERRORC = "|cFFC41E3A"
+local ERRORC = "|cFFEF5350"
 
 local function gbvLink(tag, label)
     return (LINKC .. "|Hgbv:%s|h[%s]|h|r"):format(tag, label)
