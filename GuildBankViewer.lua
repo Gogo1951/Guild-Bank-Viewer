@@ -173,7 +173,7 @@ local function collectFromBagRange(firstBag, lastBag)
                     iid = iid or GBV_GetItemIDFromLink(link)
                     count = count or 0
                     if iid and count > 0 then
-                        list[#list + 1] = {i = iid, q = count, loc = {bag = bag, slot = slot}}
+                        list[#list + 1] = {i = iid, q = count, l = link, loc = {bag = bag, slot = slot}}
                     end
                 end
             end
@@ -208,6 +208,20 @@ local function CollectBank()
     return out
 end
 
+-- Combined Backpack + Bank Vault
+local function CollectCombined()
+    local combined = {}
+    local bags = CollectBags()
+    for i = 1, #bags do
+        combined[#combined + 1] = bags[i]
+    end
+    local bank = CollectBank()
+    for i = 1, #bank do
+        combined[#combined + 1] = bank[i]
+    end
+    return combined
+end
+
 local function CollectGuildBank()
     local items = {}
     if not IsInGuild() then
@@ -228,7 +242,7 @@ local function CollectGuildBank()
                 count = count or 1
                 local iid = GBV_GetItemIDFromLink(link)
                 if iid then
-                    items[#items + 1] = {i = iid, q = count, loc = {tab = tab, slot = slot}}
+                    items[#items + 1] = {i = iid, q = count, l = link, loc = {tab = tab, slot = slot}}
                 end
             end
         end
@@ -318,11 +332,15 @@ local function makeTSVList(items, whereLabel)
     local guid = UnitGUID("player") or ""
     local locationLabel = whereLabel or ""
 
-    local uniqueIDs = {}
+    -- Build a set of unique item keys (link if available, otherwise itemID)
+    local uniqueKeys = {}
     for _, it in ipairs(items) do
         local iid = it.i
         if iid then
-            uniqueIDs[iid] = true
+            local key = it.l or tostring(iid)
+            if not uniqueKeys[key] then
+                uniqueKeys[key] = {iid = iid, link = it.l}
+            end
         end
     end
 
@@ -332,36 +350,43 @@ local function makeTSVList(items, whereLabel)
     local subtypes = {}
     local equips = {}
     local bindTypes = {}
+    local itemIDs = {}
 
-    for iid in pairs(uniqueIDs) do
+    -- Fetch item info per unique key; if we have a full link, this includes suffix
+    for key, info in pairs(uniqueKeys) do
+        local iid = info.iid
+        local token = info.link or iid
         local name, _, quality, _, _, itemType, itemSubType, _, equipLoc, _, _, _, _, bindType
         if GetItemInfo then
-            name, _, quality, _, _, itemType, itemSubType, _, equipLoc, _, _, _, _, bindType = GetItemInfo(iid)
+            name, _, quality, _, _, itemType, itemSubType, _, equipLoc, _, _, _, _, bindType = GetItemInfo(token)
         end
         if not name then
             name = tostring(iid)
         end
-        names[iid] = name
-        qualities[iid] = quality
-        types[iid] = itemType or ""
-        subtypes[iid] = itemSubType or ""
-        equips[iid] = equipLoc or ""
-        bindTypes[iid] = bindType or 0
+        names[key] = name
+        qualities[key] = quality
+        types[key] = itemType or ""
+        subtypes[key] = itemSubType or ""
+        equips[key] = equipLoc or ""
+        bindTypes[key] = bindType or 0
+        itemIDs[key] = iid
     end
 
     local totals = {}
     local keyMeta = {}
 
+    -- Aggregate by (itemKey + bound/unbound)
     for _, it in ipairs(items) do
         local iid = it.i
         local qty = it.q or 0
         if iid and qty > 0 then
-            local bindType = bindTypes[iid] or 0
+            local itemKey = it.l or tostring(iid)
+            local bindType = bindTypes[itemKey] or 0
             local isBound = isItemInstanceBound(it, bindType)
-            local key = tostring(iid) .. ":" .. (isBound and "1" or "0")
-            totals[key] = (totals[key] or 0) + qty
-            if not keyMeta[key] then
-                keyMeta[key] = {iid = iid, isBound = isBound}
+            local aggKey = itemKey .. ":" .. (isBound and "1" or "0")
+            totals[aggKey] = (totals[aggKey] or 0) + qty
+            if not keyMeta[aggKey] then
+                keyMeta[aggKey] = {itemKey = itemKey, iid = iid, isBound = isBound}
             end
         end
     end
@@ -376,13 +401,11 @@ local function makeTSVList(items, whereLabel)
         function(a, b)
             local ma = keyMeta[a]
             local mb = keyMeta[b]
-            local ida = ma.iid
-            local idb = mb.iid
-            local nameA = names[ida] or ""
-            local nameB = names[idb] or ""
+            local nameA = names[ma.itemKey] or ""
+            local nameB = names[mb.itemKey] or ""
             if nameA == nameB then
                 if ma.isBound == mb.isBound then
-                    return ida < idb
+                    return (ma.iid or 0) < (mb.iid or 0)
                 end
                 return ma.isBound and true or false
             end
@@ -440,18 +463,19 @@ local function makeTSVList(items, whereLabel)
 
     for _, key in ipairs(sortedKeys) do
         local meta = keyMeta[key]
+        local itemKey = meta.itemKey
         local iid = meta.iid
         local qty = totals[key] or 0
-        local name = names[iid] or tostring(iid)
-        local rarityName = RARITY_NAMES[qualities[iid] or -1] or ""
-        local itemType = types[iid] or ""
-        local itemSub = subtypes[iid] or ""
-        local equipLoc = equips[iid]
+        local name = names[itemKey] or tostring(iid)
+        local rarityName = RARITY_NAMES[qualities[itemKey] or -1] or ""
+        local itemType = types[itemKey] or ""
+        local itemSub = subtypes[itemKey] or ""
+        local equipLoc = equips[itemKey]
         local equipText = ""
         if equipLoc and equipLoc ~= "" and equipLoc ~= "INVTYPE_NON_EQUIP_IGNORE" then
             equipText = _G[equipLoc] or ""
         end
-        local bindType = bindTypes[iid] or 0
+        local bindType = bindTypes[itemKey] or 0
         local boundText = meta.isBound and "Yes" or "No"
         local bindsText = BIND_TYPES[bindType] or ""
         local wowheadURL = WOWHEAD_URL_BASE .. tostring(iid)
@@ -477,18 +501,11 @@ end
 local frame
 local titleFS
 local errorFS
-local labelExport
-local editExport
-local btnExport
 
+-- Only keep the Google Sheets export row
 local labelExportTSV
 local editExportTSV
 local btnExportTSV
-
-local editURL1
-local btnURL1
-local editURL2
-local btnURL2
 local helpText
 
 local function selectEditBox(eb)
@@ -551,7 +568,8 @@ local function ensureFrame()
     end
 
     frame = CreateFrame("Frame", "GBVExportFrame", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
-    frame:SetSize(500, 310)
+    frame:SetSize(500, 180) -- tightened up
+
     frame:SetPoint("CENTER")
     frame:SetFrameStrata("DIALOG")
 
@@ -587,20 +605,13 @@ local function ensureFrame()
     local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", 2, 2)
 
-    labelExport, editExport, btnExport = createSelectRow(-44, "Export for Guild Bank Viewer")
-    labelExportTSV, editExportTSV, btnExportTSV = createSelectRow(-96, "Export for Google Sheets")
-    local label1
-    label1, editURL1, btnURL1 = createSelectRow(-148, "Website", "https://www.guildbankviewer.com")
-    local label2
-    label2, editURL2, btnURL2 = createSelectRow(-200, "Discord", "https://discord.gg/eh8hKq992Q")
+    -- Single row: Export for Google Sheets
+    labelExportTSV, editExportTSV, btnExportTSV = createSelectRow(-44, "Export for Google Sheets")
 
     helpText = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     helpText:SetPoint("BOTTOMLEFT", 16, 12)
     helpText:SetText("Click Select, then press Ctrl+C (Windows) or Apple+C (Mac) to copy.")
 
-    setupEditBoxCommon(editURL1)
-    setupEditBoxCommon(editURL2)
-    setupEditBoxCommon(editExport)
     setupEditBoxCommon(editExportTSV)
 end
 
@@ -631,13 +642,10 @@ local function ShowExportWindow(items, whereLabel)
     frame:Show()
     setExportHeader(whereLabel)
 
-    editExport:SetText(makeExportBlob(whereLabel, items))
-    editExport:HighlightText(0, 0)
-    editExport:SetCursorPosition(0)
-
     if editExportTSV then
         editExportTSV:SetText(makeTSVList(items, whereLabel))
-        editExportTSV:ClearFocus()
+        editExportTSV:HighlightText()
+        editExportTSV:SetCursorPosition(0)
     end
 
     updateBankVaultError()
@@ -651,6 +659,8 @@ SetItemRef = function(link, text, button, chatFrame)
             ShowExportWindow(CollectBags(), "Backpack")
         elseif arg == "bank" then
             ShowExportWindow(CollectBank(), "Bank Vault")
+        elseif arg == "combined" then
+            ShowExportWindow(CollectCombined(), "Combined Backpack & Bank Vault")
         elseif arg == "guildbank" then
             ShowExportWindow(CollectGuildBank(), "Guild Bank Vault")
         end
@@ -708,7 +718,15 @@ local function postBankLine()
                         "Click to export the contents of your " ..
                             ENDC ..
                                 gbvLink("bag", "Backpack") ..
-                                    TEXTC .. ", or " .. ENDC .. gbvLink("bank", "Bank Vault") .. TEXTC .. "." .. ENDC
+                                    TEXTC ..
+                                        ", " ..
+                                            ENDC ..
+                                                gbvLink("bank", "Bank Vault") ..
+                                                    TEXTC ..
+                                                        ", " ..
+                                                            ENDC ..
+                                                                gbvLink("combined", "Combined Backpack & Bank Vault") ..
+                                                                    TEXTC .. "." .. ENDC
     safeAddMessage(msg)
 end
 
