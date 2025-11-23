@@ -1,7 +1,7 @@
 local ADDON = ...
 local GBV = {}
 _G[ADDON] = GBV
-local DISPLAY_NAME = "Exporter"
+local DISPLAY_NAME = "Data Exporter"
 
 local hasC = C_Container ~= nil
 
@@ -78,9 +78,9 @@ local function GBV_GetItemIDFromLink(link)
     return tonumber(idStr)
 end
 
-local NAMEC = "|cFF78909C"
+local NAMEC = "|cFF82B1FF"
 local LINKC = "|cFF2196F3"
-local SLASHC = "|cFF37474F"
+local SLASHC = "|cFF2962FF"
 local TEXTC = "|cFFFFFFFF"
 local ENDC = "|r"
 local ERRORC = "|cFFEF5350"
