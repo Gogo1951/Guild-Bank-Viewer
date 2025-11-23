@@ -208,7 +208,6 @@ local function CollectBank()
     return out
 end
 
--- Combined Backpack + Bank Vault
 local function CollectCombined()
     local combined = {}
     local bags = CollectBags()
@@ -296,6 +295,42 @@ local function isItemInstanceBound(item, bindType)
     return false
 end
 
+local function isItemInstanceConjured(item)
+    local loc = item.loc
+    if not loc then
+        return false
+    end
+    ensureScanTooltip()
+    scanTooltip:ClearLines()
+    if loc.bag then
+        scanTooltip:SetBagItem(loc.bag, loc.slot)
+    elseif loc.tab and SetGuildBankItem then
+        scanTooltip:SetGuildBankItem(loc.tab, loc.slot)
+    else
+        return false
+    end
+
+    local conjuredGlobal = CONJURED_ITEM_TEXT or ITEM_CONJURED
+
+    for i = 1, scanTooltip:NumLines() do
+        local left = _G["GBVScanTooltipTextLeft" .. i]
+        local text = left and left:GetText()
+        if text and text ~= "" then
+            if conjuredGlobal and text == conjuredGlobal then
+                return true
+            end
+            local lower = text:lower()
+            if lower:find("conjured") then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local optIncludeBoundItems = false
+local optIncludeConjuredItems = false
+
 local function splitCopper(copper)
     local g = math.floor(copper / 10000)
     local s = math.floor((copper % 10000) / 100)
@@ -332,7 +367,6 @@ local function makeTSVList(items, whereLabel)
     local guid = UnitGUID("player") or ""
     local locationLabel = whereLabel or ""
 
-    -- Build a set of unique item keys (link if available, otherwise itemID)
     local uniqueKeys = {}
     for _, it in ipairs(items) do
         local iid = it.i
@@ -352,7 +386,6 @@ local function makeTSVList(items, whereLabel)
     local bindTypes = {}
     local itemIDs = {}
 
-    -- Fetch item info per unique key; if we have a full link, this includes suffix
     for key, info in pairs(uniqueKeys) do
         local iid = info.iid
         local token = info.link or iid
@@ -375,7 +408,6 @@ local function makeTSVList(items, whereLabel)
     local totals = {}
     local keyMeta = {}
 
-    -- Aggregate by (itemKey + bound/unbound)
     for _, it in ipairs(items) do
         local iid = it.i
         local qty = it.q or 0
@@ -383,10 +415,15 @@ local function makeTSVList(items, whereLabel)
             local itemKey = it.l or tostring(iid)
             local bindType = bindTypes[itemKey] or 0
             local isBound = isItemInstanceBound(it, bindType)
-            local aggKey = itemKey .. ":" .. (isBound and "1" or "0")
-            totals[aggKey] = (totals[aggKey] or 0) + qty
-            if not keyMeta[aggKey] then
-                keyMeta[aggKey] = {itemKey = itemKey, iid = iid, isBound = isBound}
+            local isConjured = isItemInstanceConjured(it)
+
+            if (not optIncludeBoundItems and isBound) or (not optIncludeConjuredItems and isConjured) then
+            else
+                local aggKey = itemKey .. ":" .. (isBound and "1" or "0")
+                totals[aggKey] = (totals[aggKey] or 0) + qty
+                if not keyMeta[aggKey] then
+                    keyMeta[aggKey] = {itemKey = itemKey, iid = iid, isBound = isBound}
+                end
             end
         end
     end
@@ -502,11 +539,16 @@ local frame
 local titleFS
 local errorFS
 
--- Only keep the Google Sheets export row
+local optionsHeader
+local includeBoundCheckbox
+local includeConjuredCheckbox
+
 local labelExportTSV
 local editExportTSV
 local btnExportTSV
 local helpText
+
+local refreshExportText
 
 local function selectEditBox(eb)
     if not eb then
@@ -540,6 +582,9 @@ local function createSelectRow(y, labelText, defaultText)
     button:SetScript(
         "OnClick",
         function()
+            if refreshExportText then
+                refreshExportText()
+            end
             selectEditBox(editBox)
         end
     )
@@ -568,7 +613,7 @@ local function ensureFrame()
     end
 
     frame = CreateFrame("Frame", "GBVExportFrame", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
-    frame:SetSize(500, 180) -- tightened up
+    frame:SetSize(500, 220)
 
     frame:SetPoint("CENTER")
     frame:SetFrameStrata("DIALOG")
@@ -605,16 +650,51 @@ local function ensureFrame()
     local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", 2, 2)
 
-    -- Single row: Export for Google Sheets
-    labelExportTSV, editExportTSV, btnExportTSV = createSelectRow(-44, "Export for Google Sheets")
+    optionsHeader = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    optionsHeader:SetPoint("TOPLEFT", 16, -44)
+    optionsHeader:SetText("Export Options")
+
+    includeBoundCheckbox = CreateFrame("CheckButton", nil, frame, "UICheckButtonTemplate")
+    includeBoundCheckbox:SetPoint("TOPLEFT", optionsHeader, "BOTTOMLEFT", 0, -4)
+    includeBoundCheckbox:SetChecked(false)
+    includeBoundCheckbox.text = includeBoundCheckbox:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    includeBoundCheckbox.text:SetPoint("LEFT", includeBoundCheckbox, "RIGHT", 4, 0)
+    includeBoundCheckbox.text:SetText("Include Bound Items")
+
+    includeConjuredCheckbox = CreateFrame("CheckButton", nil, frame, "UICheckButtonTemplate")
+    includeConjuredCheckbox:SetPoint("TOPLEFT", includeBoundCheckbox, "BOTTOMLEFT", 0, -4)
+    includeConjuredCheckbox:SetChecked(false)
+    includeConjuredCheckbox.text = includeConjuredCheckbox:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    includeConjuredCheckbox.text:SetPoint("LEFT", includeConjuredCheckbox, "RIGHT", 4, 0)
+    includeConjuredCheckbox.text:SetText("Include Conjured Items")
+
+    labelExportTSV, editExportTSV, btnExportTSV = createSelectRow(-142, "Export for Google Sheets")
 
     helpText = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     helpText:SetPoint("BOTTOMLEFT", 16, 12)
     helpText:SetText("Click Select, then press Ctrl+C (Windows) or Apple+C (Mac) to copy.")
 
     setupEditBoxCommon(editExportTSV)
+
+    includeBoundCheckbox:SetScript(
+        "OnClick",
+        function()
+            if refreshExportText then
+                refreshExportText()
+            end
+        end
+    )
+    includeConjuredCheckbox:SetScript(
+        "OnClick",
+        function()
+            if refreshExportText then
+                refreshExportText()
+            end
+        end
+    )
 end
 
+local currentItems = nil
 local currentWhere = nil
 
 local function setExportHeader(whereLabel)
@@ -637,17 +717,31 @@ local function updateBankVaultError()
     end
 end
 
+local function updateOptionsFromUI()
+    if includeBoundCheckbox then
+        optIncludeBoundItems = includeBoundCheckbox:GetChecked() and true or false
+    end
+    if includeConjuredCheckbox then
+        optIncludeConjuredItems = includeConjuredCheckbox:GetChecked() and true or false
+    end
+end
+
+refreshExportText = function()
+    if not frame or not editExportTSV or not currentItems then
+        return
+    end
+    updateOptionsFromUI()
+    editExportTSV:SetText(makeTSVList(currentItems, currentWhere))
+    editExportTSV:HighlightText()
+    editExportTSV:SetCursorPosition(0)
+end
+
 local function ShowExportWindow(items, whereLabel)
     ensureFrame()
     frame:Show()
+    currentItems = items
     setExportHeader(whereLabel)
-
-    if editExportTSV then
-        editExportTSV:SetText(makeTSVList(items, whereLabel))
-        editExportTSV:HighlightText()
-        editExportTSV:SetCursorPosition(0)
-    end
-
+    refreshExportText()
     updateBankVaultError()
 end
 
